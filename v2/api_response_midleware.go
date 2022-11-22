@@ -1,11 +1,12 @@
 package v2
 
 import (
-	"github.com/chamhaw/go-tools/gf-tool/v2/gerror"
-	"github.com/chamhaw/go-tools/utils"
+	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
 	"github.com/gogf/gf/v2/os/gctx"
 	"github.com/gogf/gf/v2/os/glog"
+	"heguan-code.urbanic.com/infrastructure/gf-tools/v2/gerror"
+	"heguan-code.urbanic.com/infrastructure/go-tools/utils"
 	"net/http"
 	"reflect"
 )
@@ -28,8 +29,10 @@ func MiddlewareHandlerResponse(r *ghttp.Request) {
 		err = r.GetError()
 		res = r.GetHandlerResponse()
 	)
+	// 有错误
 	if err != nil {
 		er, ok := err.(gerror.BizError)
+		// 如果是我们业务主动抛出，则按业务错误处理
 		if ok {
 			r.Response.Status = utils.GetOrDefault(er.Code().HttpStatus(), http.StatusBadRequest)
 			r.Response.WriteJson(DefaultHandlerResponse{
@@ -37,23 +40,48 @@ func MiddlewareHandlerResponse(r *ghttp.Request) {
 				Message:    er.Message(),
 				Properties: er.Detail(),
 			})
-		} else {
-			r.Response.Status = http.StatusInternalServerError
-			glog.Error(gctx.New(), "Runtime error.", err)
-			r.Response.WriteJson(DefaultHandlerResponse{
-				Code:    gerror.CodeInternalError.Code(),
-				Message: err.Error(),
-			})
+			return
 		}
-	} else if res != nil && !reflect.ValueOf(res).IsNil() {
-		r.Response.WriteJson(res)
-	} else {
+
+		// 其余的一律按系统错误处理
+		r.Response.Status = http.StatusInternalServerError
+		glog.Error(gctx.New(), "Runtime error.", err)
 		r.Response.WriteJson(DefaultHandlerResponse{
-			Success: r.Response.Status >= http.StatusOK && r.Response.Status < http.StatusMultipleChoices,
-			Code:    http.StatusText(r.Response.Status),
-			Message: http.StatusText(r.Response.Status),
+			Code:    gerror.CodeInternalError.Code(),
+			Message: err.Error(),
 		})
+		return
+
 	}
+
+	// 如果 response 不为空
+	if res != nil {
+		v := reflect.ValueOf(res)
+		if !v.IsNil() {
+			r.Response.WriteJson(res)
+			return
+		}
+
+		switch reflect.TypeOf(v.Interface()).Kind() {
+		case reflect.Array:
+			r.Response.WriteJson(g.Array{})
+			return
+		case reflect.Slice:
+			r.Response.WriteJson(g.Slice{})
+			return
+		case reflect.Map:
+			r.Response.WriteJson(g.Map{})
+			return
+		default:
+			// nothing
+		}
+	}
+
+	r.Response.WriteJson(DefaultHandlerResponse{
+		Success: r.Response.Status >= http.StatusOK && r.Response.Status < http.StatusMultipleChoices,
+		Code:    http.StatusText(r.Response.Status),
+		Message: http.StatusText(r.Response.Status),
+	})
 
 }
 
